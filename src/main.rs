@@ -1,27 +1,57 @@
 use chrono::{DateTime, Utc};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use serde::Deserialize;
+use serde::Serialize;
 use sha256::digest;
-use std::fs::OpenOptions;
-use std::io::prelude::*;
-use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Instant;
 
-const JOB_SIZE: u128 = 1_000_000_000;
-const SERVER_URL: &str = "ec2-3-104-2-89.ap-southeast-2.compute.amazonaws.com";
+const JOB_SIZE: u64 = 10_000_000;
+const SERVER_URL: &str = "http://ec2-3-104-2-89.ap-southeast-2.compute.amazonaws.com:9876";
 
-fn record_start() {
-    let mut file_out = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open("start.txt")
-        .unwrap();
-
-    let now: DateTime<Utc> = Utc::now();
-    if let Err(e) = writeln!(file_out, "start: {}", now) {
-        eprintln!("Couldn't write to file: {}", e);
-    }
+#[derive(Serialize, Deserialize)]
+struct JobRequest {
+    job_n: u64,
 }
 
-fn main() {
+#[derive(Serialize, Deserialize)]
+struct Solution {
+    sha256: String,
+    nounce: String,
+    time: String,
+}
+#[derive(Serialize, Deserialize)]
+struct Submittion {
+    job_n: u64,
+    student_number: String,
+    hashs_per_second: f64,
+    solutions: Vec<Solution>,
+}
+
+fn next_job() -> u64 {
+    let job_request = reqwest::blocking::get(&format!("{}/request-job", SERVER_URL));
+    let response = job_request.expect("unable to communicate with server");
+    let job_request = response.json::<JobRequest>().expect("invalid reponse.");
+    job_request.job_n
+}
+
+fn submit(submittion: Submittion) -> bool {
+    // let body = json!(submittion);
+    let response = reqwest::blocking::Client::new()
+        .post(&format!("{}/submit-job", SERVER_URL))
+        .json(&submittion)
+        .send()
+        .expect("unable to communicate with server");
+    let job_accepted = response.json::<JobAccepted>().expect("invalid reponse");
+    return job_accepted.job_accepted;
+}
+
+#[derive(Serialize, Deserialize)]
+struct JobAccepted {
+    job_accepted: bool,
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arg_student_number = std::env::args()
         .nth(1)
         .expect("invalid student number\nusage: ./hasher <student number> <threads>\n");
@@ -32,52 +62,64 @@ fn main() {
         .parse::<usize>()
         .expect("thread count must be a number\nusage: ./hasher <student number> <threads>\n");
 
-    record_start();
+    let m = MultiProgress::new();
+    let sty = ProgressStyle::default_bar()
+        .template("{spinner:.green} [{bar:40.cyan/blue}] {percent}% {msg}")
+        .progress_chars("##-");
 
     let mut jobs = Vec::new();
     for _ in 0..arg_thread_count {
-        let student_number = arg_student_number.clone();
+        let student_number = String::clone(&arg_student_number);
+        let pb = m.add(ProgressBar::new(JOB_SIZE));
+        pb.set_style(sty.clone());
         jobs.push(thread::spawn(move || loop {
-            let (start, end) = {
-                let mut job_n_factor = job_n_local.lock().unwrap();
-                println!("job {}", job_n_factor);
-                let start = *job_n_factor * JOB_SIZE;
-                let end = start + JOB_SIZE;
-                *job_n_factor += 1;
-                (start, end)
-            };
+            let job_n_factor = next_job();
+            let start = job_n_factor * JOB_SIZE;
+            let end = start + JOB_SIZE;
+            let mut solutions = vec![];
+            let start_time = Instant::now();
+            pb.set_message(&format!("Job {}", job_n_factor));
             for n in start..end {
+                pb.inc(1);
                 let n_string = hex_string(n);
-                let hash = digest(student_number + &n_string);
+                let hash = digest(String::clone(&student_number) + &n_string);
                 let nounce = count_nounce(&hash);
-                // Disregard results less than 7.
-                if nounce <= 6 {
+                // Disregard results less than 8.
+                if nounce <= 7 {
                     continue;
                 }
 
                 {
-                    let _lock = local_file_lock.lock().unwrap();
-                    let mut file_out = OpenOptions::new()
-                        .create(true)
-                        .write(true)
-                        .append(true)
-                        .open(&format!("results_{}.txt", nounce))
-                        .unwrap();
                     let now: DateTime<Utc> = Utc::now();
-
-                    println!("time: {} hash: {} n: {}", now, hash, n_string);
-
-                    if let Err(e) =
-                        writeln!(file_out, "time: {} hash: {} n: {}", now, hash, n_string)
-                    {
-                        eprintln!("Couldn't write to file: {}", e);
-                    }
+                    let solution = Solution {
+                        nounce: n_string,
+                        sha256: hash,
+                        time: format!("{}", now),
+                    };
+                    solutions.push(solution);
                 }
             }
+            let duration = start_time.elapsed();
+            let hashs_per_second = 1000f64 * JOB_SIZE as f64 / duration.as_millis() as f64;
+            // if solutions.len() > 0 {
+            //     println!("Submitting {} solutions.", solutions.len());
+            // }
+            let submittion = Submittion {
+                job_n: job_n_factor,
+                student_number: String::clone(&student_number),
+                hashs_per_second,
+                solutions,
+            };
+            // pb.finish_with_message("done");
+            pb.reset();
+            submit(submittion);
         }));
     }
+    m.join_and_clear().unwrap();
     jobs.into_iter()
-        .for_each(|thread| thread.join().expect("didn't join."))
+        .for_each(|thread| thread.join().expect("didn't join."));
+
+    Ok(())
 }
 
 fn count_nounce(hash: &String) -> usize {
@@ -92,7 +134,7 @@ fn count_nounce(hash: &String) -> usize {
     length
 }
 
-fn hex_string(n: u128) -> String {
+fn hex_string(n: u64) -> String {
     let mut n_string = String::new();
     for &b in n.to_ne_bytes().iter() {
         let lower = b & 0x0F;
