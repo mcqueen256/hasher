@@ -6,7 +6,7 @@ use sha256::digest;
 use std::thread;
 use std::time::Instant;
 
-const JOB_SIZE: u64 = 10_000_000;
+const JOB_SIZE: u64 = 100_000_000;
 const SERVER_URL: &str = "http://ec2-3-104-2-89.ap-southeast-2.compute.amazonaws.com:9876";
 
 #[derive(Serialize, Deserialize)]
@@ -23,6 +23,7 @@ struct Solution {
 #[derive(Serialize, Deserialize)]
 struct Submittion {
     job_n: u64,
+    uuid: String,
     student_number: String,
     hashs_per_second: f64,
     solutions: Vec<Solution>,
@@ -52,6 +53,7 @@ struct JobAccepted {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("hasher 0.1");
     let arg_student_number = std::env::args()
         .nth(1)
         .expect("invalid student number\nusage: ./hasher <student number> <threads>\n");
@@ -67,8 +69,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .template("{spinner:.green} [{bar:40.cyan/blue}] {percent}% {msg}")
         .progress_chars("##-");
 
+    let uuid = {
+        let now: DateTime<Utc> = Utc::now();
+        let time = &format!("{}", now);
+        digest(time)
+    };
+
     let mut jobs = Vec::new();
-    for _ in 0..arg_thread_count {
+    for thread_number in 0..arg_thread_count {
+        let thread_uid = digest(String::clone(&uuid) + &thread_number.to_string());
         let student_number = String::clone(&arg_student_number);
         let pb = m.add(ProgressBar::new(JOB_SIZE));
         pb.set_style(sty.clone());
@@ -78,9 +87,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let end = start + JOB_SIZE;
             let mut solutions = vec![];
             let start_time = Instant::now();
-            pb.set_message(&format!("Job {}", job_n_factor));
             for n in start..end {
-                pb.inc(1);
+                if n % 100000 == 0 {
+                    pb.inc(100000);
+                    pb.set_message(&format!("Job: {}, sols: {}", job_n_factor, solutions.len()));
+                }
                 let n_string = hex_string(n);
                 let hash = digest(String::clone(&student_number) + &n_string);
                 let nounce = count_nounce(&hash);
@@ -88,29 +99,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if nounce <= 7 {
                     continue;
                 }
-
-                {
-                    let now: DateTime<Utc> = Utc::now();
-                    let solution = Solution {
-                        nounce: n_string,
-                        sha256: hash,
-                        time: format!("{}", now),
-                    };
-                    solutions.push(solution);
-                }
+                let now: DateTime<Utc> = Utc::now();
+                let solution = Solution {
+                    nounce: n_string,
+                    sha256: hash,
+                    time: format!("{}", now),
+                };
+                solutions.push(solution);
             }
             let duration = start_time.elapsed();
             let hashs_per_second = 1000f64 * JOB_SIZE as f64 / duration.as_millis() as f64;
-            // if solutions.len() > 0 {
-            //     println!("Submitting {} solutions.", solutions.len());
-            // }
             let submittion = Submittion {
                 job_n: job_n_factor,
                 student_number: String::clone(&student_number),
                 hashs_per_second,
+                uuid: String::clone(&&thread_uid),
                 solutions,
             };
-            // pb.finish_with_message("done");
             pb.reset();
             submit(submittion);
         }));
