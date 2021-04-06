@@ -1,13 +1,13 @@
-use tui::{
-    style::{Color, Style},
-    text::{Spans, Span},
-    widgets::{ListItem},
-};
 
-// let messages = Vec::new::<String>();
-pub struct Logger<'a>(Vec<ListItem<'a>>);
+#[derive(Clone)]
+pub enum LogMessage {
+    Solution { hash: String, nounce: String },
+    Info(String),
+    Error(String),
+}
+pub struct Logger (Vec<LogMessage>);
 
-impl<'a> Logger<'a> {
+impl Logger {
     pub fn new() -> Self {
         Self(Vec::new())
     }
@@ -16,78 +16,34 @@ impl<'a> Logger<'a> {
         let hash = String::from(hash);
         let nounce = String::from(nounce);
 
-        // Catergories message
-        let mut line = vec![
-            Span::raw(" [ "),
-            Span::styled("OK", Style::default().fg(Color::Green)),
-            Span::raw(" ]   "),
-        ];
-
-        // Add length
-        let zn = crate::com::count_nounce(&hash);
-        let length_str = format!("{:<5}", &zn);
-        line.push(Span::raw(length_str));
-
-        // Add sha256
-        let zeros = String::from(&hash[..zn]);
-        let zeros = Span::styled(zeros, Style::default().fg(Color::Cyan));
-        let rest = String::from(&hash[zn..]);
-        let rest  = Span::raw(rest);
-        line.push(zeros);
-        line.push(rest);
-        line.push(Span::raw("   "));
-
-        // Add nounce
-        line.push(Span::raw(nounce));
-
-        // Add to queue.
-        let lines = vec![Spans::from(line)];
-        let list_item = ListItem::new(lines).style(Style::default());
-        self.0.push(list_item);
+        self.0.push(LogMessage::Solution{
+            hash,
+            nounce,
+        });
     }
 
-    pub fn error(&mut self, message: &'a str) {
-        // Catergories message
-        let mut line = vec![
-            Span::raw(" [ "),
-            Span::styled("ERR", Style::default().fg(Color::Red)),
-            Span::raw(" ]  "),
-        ];
-        
-        line.push(Span::raw(message));
-
-        // Add to queue.
-        let lines = vec![Spans::from(line)];
-        let list_item = ListItem::new(lines).style(Style::default());
-        self.0.push(list_item);
+    pub fn error(&mut self, message: &str) {
+        self.0.push(LogMessage::Error(
+            String::from(message)
+        ));
     }
 
 
-    pub fn info(&mut self, message: &'a str) {
-        // Catergories message
-        let mut line = vec![
-            Span::raw(" [ "),
-            Span::styled("INF", Style::default().fg(Color::LightBlue)),
-            Span::raw(" ]  "),
-        ];
-        
-        line.push(Span::raw(message));
-
-        // Add to queue.
-        let lines = vec![Spans::from(line)];
-        let list_item = ListItem::new(lines).style(Style::default());
-        self.0.push(list_item);
+    pub fn info(&mut self, message: &str) {
+        self.0.push(LogMessage::Info(
+            String::from(message)
+        ));
     }
 
     pub fn len(&mut self) -> usize {
         self.0.len()
     }
 
-    pub fn pop(&mut self) -> ListItem<'a> {
+    pub fn pop(&mut self) -> LogMessage {
         self.0.remove(0)
     }
 
-    pub fn get(&self) -> &Vec<ListItem<'a>> {
+    pub fn get(&self) -> &Vec<LogMessage> {
         &self.0
     }
 }

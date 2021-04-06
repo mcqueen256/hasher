@@ -1,8 +1,9 @@
-mod app;
+mod application;
 mod miner;
 mod ui;
 mod com;
 mod log;
+mod net;
 
 #[allow(dead_code)]
 mod util;
@@ -10,6 +11,7 @@ mod util;
 use std::error::Error;
 use std::sync::Arc;
 use std::sync::Mutex;
+use application::App;
 use num_cpus;
 use structopt::StructOpt;
 
@@ -56,7 +58,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let app = Arc::new(
         Mutex::new(
-            app::Application::start(
+            application::Application::start(
                 args.student_number,
                 thread_count,
                 machine_name,
@@ -67,5 +69,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let minter_thread = miner::begin(Arc::clone(&app));
     ui::main_loop(Arc::clone(&app))?;
     minter_thread.join().expect("Could not finish mining threads");
+    net::deregister_with_the_server(App::from(&app));
     Ok(())
 }

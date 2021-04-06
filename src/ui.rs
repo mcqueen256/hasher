@@ -26,9 +26,14 @@ use crate::util::event::Events;
 
 use std::sync::Arc;
 use std::sync::Mutex;
-use crate::app::Application;
-use crate::app::ThreadState;
-use crate::app::CurrentJob;
+use crate::application::{
+    App,
+    Application,
+    CurrentJob,
+    ThreadState,
+};
+
+use crate::log::LogMessage;
 
 struct Solution {
     sha256: String,
@@ -61,10 +66,10 @@ pub fn main_loop(app: Arc<Mutex<Application>>) -> Result<(), Box<dyn Error>> {
                     Constraint::Percentage(50),
                 ].as_ref())
                 .split(f.size());
-            
-            let stats = extract_statistics(Arc::clone(&app));
-            let thread_statuses = extract_thread_statuses(Arc::clone(&app));
-            let messages = extract_log_messages(Arc::clone(&app));
+            let app = App::from(&app);
+            let stats = extract_statistics(App::clone(&app));
+            let thread_statuses = extract_thread_statuses(App::clone(&app));
+            let messages = extract_log_messages(App::clone(&app));
 
             draw_app_stats_window(f, chunks[0], stats);
             draw_gauge_window(f, chunks[1], thread_statuses);
@@ -193,7 +198,7 @@ fn draw_gauge_window<B: Backend>(f: &mut Frame<B>, area: Rect, thread_statuses: 
         let job_info = if let Some(current_job) = &ts.current_job {
             let progress = current_job.progress as f64 / current_job.size as f64;
             (
-                format!("Job {} : {:.2}%", current_job.job_number, progress * 100.0),
+                format!("Thread {} : Job {} : {:.2}%", i + 1, current_job.job_number, progress * 100.0, ),
                 progress
             )
         } else {
@@ -216,19 +221,6 @@ fn draw_gauge_window<B: Backend>(f: &mut Frame<B>, area: Rect, thread_statuses: 
 
 
 fn draw_log_window<B: Backend>(f: &mut Frame<B>, area: Rect, items: Vec<ListItem>) {
-
-    // let mut stateful_list = StatefulList::with_items(vec![
-    //     Solution {
-    //         sha256: String::from("0000000000bbcfb26b255fb450e0ec75c1060b667b72209e89a66493640a4bd3"),
-    //         nounce: String::from("FAD2F2FEEB030000"),
-    //         time: 0.0,
-    //     },
-    //     Solution {
-    //         sha256: String::from("00000000cfd33b526b255fb450e0ec75c1060b667b72209e89a66493640a4bd3"),
-    //         nounce: String::from("D421F20EBB030000"),
-    //         time: 0.0,
-    //     },
-    // ]);
     let items = List::new(items)
         .block(Block::default().borders(Borders::ALL).title(" Log "));
     f.render_widget(items, area);
@@ -247,9 +239,9 @@ fn get_gauge_style(i: usize) -> Style {
 }
 
 
-fn extract_thread_statuses(app: Arc<Mutex<Application>>) -> Vec<ThreadStatus> {
-    let app = app.lock().unwrap();
-    (*app).threads
+fn extract_thread_statuses(mut app: App) -> Vec<ThreadStatus> {
+    app.lock(|app| {
+        app.threads
         .iter()
         .map(|mt| {
             ThreadStatus {
@@ -258,31 +250,92 @@ fn extract_thread_statuses(app: Arc<Mutex<Application>>) -> Vec<ThreadStatus> {
             }
         })
         .collect()
+    })
 }
 
 
-fn extract_statistics(app: Arc<Mutex<Application>>) -> Statistics {
-    let app = app.lock().unwrap();
-    Statistics {
+fn extract_statistics(mut app: App) -> Statistics {
+    app.lock(|app| Statistics {
         hash_rate: 2.44,
         completed_job: 150073,
         user_shares: 45,
         pool_shares: 1506,
         best_bit_length: 37,
         user_hash_rate: 23.98,
-        student_number: String::from(&(*app).student_number),
-        name: String::from(&(*app).name),
-        thread_count: (*app).expected_thread_count as u8,
-        quitting: (*app).quitting,
-    }
+        student_number: String::from(&app.student_number),
+        name: String::from(&app.name),
+        thread_count: app.expected_thread_count as u8,
+        quitting: app.quitting,
+    })
 }
 
 
-fn extract_log_messages(app: Arc<Mutex<Application>>) -> Vec<ListItem> {
-    let mut app = app.lock().unwrap();
-    while (*app).log.len() > 50 {
-        (*app).log.pop();
-    }
-    let items = Vec::clone((*app).log.get());
-    items.into_iter().rev().collect()
+fn extract_log_messages<'a>(mut app: App) -> Vec<ListItem<'a>> {
+    let logs = app.lock(|app| {
+        let messages = app.log.get();
+        messages.clone()
+    });
+    logs.into_iter()
+        .map(|msg| {
+            match msg {
+                LogMessage::Solution{hash, nounce} => {
+                    // Catergories message
+                    let mut line = vec![
+                        Span::raw(" [ "),
+                        Span::styled("OK", Style::default().fg(Color::Green)),
+                        Span::raw(" ]   "),
+                    ];
+
+                    // Add length
+                    let zn = crate::com::count_nounce(&hash);
+                    let length_str = format!("{:<5}", &zn);
+                    line.push(Span::raw(length_str));
+
+                    // Add sha256
+                    let zeros = String::from(&hash[..zn]);
+                    let zeros = Span::styled(zeros, Style::default().fg(Color::Cyan));
+                    let rest = String::from(&hash[zn..]);
+                    let rest  = Span::raw(rest);
+                    line.push(zeros);
+                    line.push(rest);
+                    line.push(Span::raw("   "));
+
+                    // Add nounce
+                    line.push(Span::raw(nounce));
+
+                    // Add to queue.
+                    let lines = vec![Spans::from(line)];
+                    ListItem::new(lines).style(Style::default())
+                }
+                LogMessage::Error(message) => {
+                    // Catergories message
+                    let mut line = vec![
+                        Span::raw(" [ "),
+                        Span::styled("ERR", Style::default().fg(Color::Red)),
+                        Span::raw(" ]  "),
+                    ];
+                    
+                    line.push(Span::raw(message));
+
+                    // Add to queue.
+                    let lines = vec![Spans::from(line)];
+                    ListItem::new(lines).style(Style::default())
+                }
+                LogMessage::Info(message) => {
+                    // Catergories message
+                    let mut line = vec![
+                        Span::raw(" [ "),
+                        Span::styled("INF", Style::default().fg(Color::LightBlue)),
+                        Span::raw(" ]  "),
+                    ];
+                    
+                    line.push(Span::raw(message));
+
+                    // Add to queue.
+                    let lines = vec![Spans::from(line)];
+                    ListItem::new(lines).style(Style::default())
+                }
+            }
+        })
+        .collect()
 }

@@ -3,14 +3,14 @@ use std::sync::Mutex;
 
 use crate::log::Logger;
 
-pub struct Application<'a> {
+pub struct Application {
     pub student_number: String,
     pub name: String,
     pub quitting: bool,
     pub threads_cleaned_up: bool,
     pub threads: Vec<MiningThread>,
     pub expected_thread_count: usize,
-    pub log: Logger<'a>,
+    pub log: Logger,
 }
 
 
@@ -32,8 +32,8 @@ pub enum ThreadState {
 #[derive(Clone, Copy)]
 pub struct CurrentJob {
     pub progress: usize,
-    pub size: usize,
-    pub job_number: usize,
+    pub size: u64,
+    pub job_number: u64,
 }
 
 /// The thread will also hold its own state and the current_job.
@@ -43,7 +43,7 @@ pub struct MiningThread {
     pub handle: std::thread::JoinHandle<()>,
 }
 
-impl<'a> Application<'a> {
+impl Application {
 
     pub fn start(student_number: String, thread_count: usize, name: String) -> Self {
         Self {
@@ -55,5 +55,22 @@ impl<'a> Application<'a> {
             expected_thread_count: thread_count,
             log: Logger::new(),
         }
+    }
+}
+
+pub struct App(pub Arc<Mutex<Application>>);
+
+impl App {
+    pub fn from(arc: &Arc<Mutex<Application>>) -> Self {
+        App (Arc::clone(arc))
+    }
+
+    pub fn lock<T>(&mut self, callback: impl Fn(&mut Application) -> T) -> T {
+        let mut app = self.0.lock().unwrap();
+        callback(&mut (*app))
+    }
+
+    pub fn clone(app: &Self) -> Self {
+        App (app.0.clone())
     }
 }
