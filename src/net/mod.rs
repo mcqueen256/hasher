@@ -7,7 +7,7 @@ use crate::application::App;
 
 use self::packets::{Job, JobResponsePacket, SubmittionPacket, SubmittionResponsePacket, PoolStatusRequestPacket, PoolStatusResponsePacket};
 
-const SERVER_URL: &str = "http://127.0.0.1:8080";
+const SERVER_URL: &str = "http://ec2-3-25-191-171.ap-southeast-2.compute.amazonaws.com:9876";
 
 fn api<T, U>(mut app: App, uri: &str, packet: T) -> Result<U, ()>
 where T: Serialize, U: DeserializeOwned
