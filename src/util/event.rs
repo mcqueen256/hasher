@@ -7,8 +7,17 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
-use termion::event::Key;
-use termion::input::TermRead;
+// use termion::event::Key;
+use crossterm::event::KeyCode as Key;
+// use termion::input::TermRead;
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use std::{
+    time::{Instant},
+};
 
 pub enum Event<I> {
     Input(I),
@@ -33,7 +42,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            exit_key: Key::Char('q'),
+            exit_key: KeyCode::Char('q'),
             tick_rate: Duration::from_millis(250),
         }
     }
@@ -51,16 +60,24 @@ impl Events {
             let tx = tx.clone();
             let ignore_exit_key = ignore_exit_key.clone();
             thread::spawn(move || {
-                let stdin = io::stdin();
-                for evt in stdin.keys() {
-                    if let Ok(key) = evt {
-                        if let Err(err) = tx.send(Event::Input(key)) {
-                            eprintln!("{}", err);
-                            return;
+                let mut last_tick = Instant::now();
+                loop {
+                    let timeout = config.tick_rate
+                        .checked_sub(last_tick.elapsed())
+                        .unwrap_or_else(|| Duration::from_secs(0));
+                    if event::poll(timeout).unwrap() {
+                        if let CEvent::Key(key) = event::read().unwrap() {
+                            if let Err(err) = tx.send(Event::Input(key.code)) {
+                                eprintln!("{}", err);
+                                return;
+                            }
+                            if !ignore_exit_key.load(Ordering::Relaxed) && key.code == config.exit_key {
+                                return;
+                            }
                         }
-                        if !ignore_exit_key.load(Ordering::Relaxed) && key == config.exit_key {
-                            return;
-                        }
+                    }
+                    if last_tick.elapsed() >= config.tick_rate {
+                        last_tick = Instant::now();
                     }
                 }
             })

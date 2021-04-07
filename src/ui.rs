@@ -1,13 +1,19 @@
 use std::io;
 use std::error::Error;
-use termion::{
-    event::Key,
-    input::MouseTerminal,
-    raw::IntoRawMode,
-    screen::AlternateScreen};
+// use termion::{
+//     event::Key,
+//     input::MouseTerminal,
+//     raw::IntoRawMode,
+//     screen::AlternateScreen};
+use crossterm::{
+        event::{self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode},
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    };
 use tui::{
     backend::Backend,
-    backend::TermionBackend,
+    // backend::TermionBackend,
+    backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
@@ -32,10 +38,15 @@ use crate::log::LogMessage;
 
 pub fn main_loop(app: Arc<Mutex<Application>>) -> Result<(), Box<dyn Error>> {
 
-    let stdout = io::stdout().into_raw_mode()?;
-    let stdout = MouseTerminal::from(stdout);
-    let stdout = AlternateScreen::from(stdout);
-    let backend = TermionBackend::new(stdout);
+    enable_raw_mode()?;
+
+    let mut stdout = std::io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+
+    // let stdout = io::stdout().into_raw_mode()?;
+    // let stdout = MouseTerminal::from(stdout);
+    // let stdout = AlternateScreen::from(stdout);
+    let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
     let events = Events::new();
@@ -69,15 +80,15 @@ pub fn main_loop(app: Arc<Mutex<Application>>) -> Result<(), Box<dyn Error>> {
 
         match events.next()? {
             Event::Input(input) => match input {
-                Key::Char('q') => {
+                KeyCode::Char('q') => {
                     let mut app = app.lock().unwrap();
                     (*app).quitting = true;
                 }
-                Key::Up => {
+                KeyCode::Up => {
                     let mut app = app.lock().unwrap();
                     (*app).expected_thread_count += 1;
                 }
-                Key::Down => {
+                KeyCode::Down => {
                     let mut app = app.lock().unwrap();
                     if (*app).expected_thread_count != 0 {
                         (*app).expected_thread_count -= 1;
@@ -96,6 +107,14 @@ pub fn main_loop(app: Arc<Mutex<Application>>) -> Result<(), Box<dyn Error>> {
             }
         }
     }
+
+
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
 
     Ok(())
 }

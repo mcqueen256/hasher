@@ -7,21 +7,18 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# sha2 = "0.9.3"
-# sha256 = "1.0.0"
-# chrono = "0.4.19"
 reqwest = { version = "^0.11.2", default-features = false, features = ["blocking", "json"] }
-# tokio = { version = "0.2", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.59"
-# indicatif = "0.15.0"
-# tui = "0.14.0"
-# termion = "1.5.6"
-# rand = "0.7"
 sha2 = "0.9.3"
-tui = "0.14.0"
-termion = "1.5.6"
 rand = "0.7"
 structopt = "0.3.13"
 num_cpus = "1.0"
 radix_fmt = "1"
+crossterm = { version = "0.19" }
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+termion = { version = "1.5.6", optional = true }
+tui = { version = "0.14.0", features = ["termion", "crossterm"], default-features = false }
+[target.'cfg(target_os = "windows")'.dependencies]
+tui = { version = "0.14.0", features = ["crossterm"], default-features = false }
