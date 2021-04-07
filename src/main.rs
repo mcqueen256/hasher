@@ -1,9 +1,28 @@
+///         ______                     
+///         _________        .---"""      """---.              
+///         :______.-':      :  .--------------.  :             
+///         | ______  |      | :                : |             
+///         |:______B:|      | |  Hasher 0.2    | |             
+///         |:______B:|      | |                | |             
+///         |:______B:|      | |  #########>  | | |             
+///         |         |      | |  ##########> | | |             
+///         |:_____:  |      | |  ########>   | | |             
+///         |    ==   |      | :                : |             
+///         |       O |      :  '--------------'  :             
+///         |       o |      :'---...______...---'              
+///         |       o |-._.-i___/'             \._              
+///         |'-.____o_|   '-.   '-...______...-'  `-._          
+///         :_________:      `.____________________   `-.___.-. 
+///                         .'.eeeeeeeeeeeeeeeeee.'.      :___:
+///                       .'.eeeeeeeeeeeeeeeeeeeeee.'.         
+///                      :____________________________:
+
 mod application;
 mod miner;
 mod ui;
-mod com;
 mod log;
 mod net;
+mod status;
 
 #[allow(dead_code)]
 mod util;
@@ -66,9 +85,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         )
     );
 
-    let minter_thread = miner::begin(Arc::clone(&app));
+    let miner_thread = miner::begin(Arc::clone(&app));
+    let status_thread = status::begin(App::from(&app));
     ui::main_loop(Arc::clone(&app))?;
-    minter_thread.join().expect("Could not finish mining threads");
+    status_thread.join().expect("Could not finish status threads");
+    miner_thread.join().expect("Could not finish mining threads");
     net::deregister_with_the_server(App::from(&app));
     Ok(())
 }

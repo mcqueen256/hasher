@@ -1,10 +1,20 @@
 use serde::Deserialize;
 use serde::Serialize;
 
-struct PoolStatusPacket {
-    total_hash_rate: f64,
-    total_shares: usize
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PoolStatusRequestPacket {
+    pub student_number: String,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct PoolStatusResponsePacket {
+    pub user_total_hash_rate: f64,
+    pub user_total_shares: usize,
+    pub pool_total_shares: usize,
+    pub pool_best_zero_length: u8,
+    pub completed_jobs: u64,
+}
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JobRequestPacket {
@@ -27,26 +37,31 @@ pub enum JobResponsePacket {
 }
 
 /// Solution info 
-struct Solution {
-    sha256: String,
-    nounce: String,
-    time: f64,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Solution {
+    pub sha256: String,
+    pub nounce: String,
+    pub time: f64,
 }
 
 /// When the job is complete, this packet is sent to the pool.
-struct SubmittionPacket {
-    job_n: u64,
-    name: String,
-    student_number: String,
-    hashs_per_second: f64,
-    nounce_start: String,
-    nounce_end: String,
-    solutions: Vec<Solution>,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SubmittionPacket {
+    pub job_n: u64,
+    pub name: String,
+    pub student_number: String,
+    pub thread_hashes_per_second: f64,
+    pub total_hashes_per_second: f64,
+    pub nounce_start: u64,
+    pub nounce_end: u64,
+    pub solutions: Vec<Solution>,
 }
 
 /// Received from the server on job submission.
-struct SubmittionResponsePacket {
-    success: bool,
+#[derive(Serialize, Deserialize, Debug)]
+pub enum SubmittionResponsePacket {
+    Accepted,
+    Rejected,
 }
 
 /// Send a message informing the cloud the machine is active.

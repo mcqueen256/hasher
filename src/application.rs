@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use crate::log::Logger;
+use crate::{log::Logger, net::packets::PoolStatusResponsePacket};
 
 pub struct Application {
     pub student_number: String,
@@ -11,6 +11,7 @@ pub struct Application {
     pub threads: Vec<MiningThread>,
     pub expected_thread_count: usize,
     pub log: Logger,
+    pub pool_status: Option<PoolStatusResponsePacket>,
 }
 
 
@@ -26,21 +27,52 @@ pub enum ThreadState {
     NotStated,
     Mining,
     StopSignal,
-    ShuttingDown,
 }
 
 #[derive(Clone, Copy)]
 pub struct CurrentJob {
-    pub progress: usize,
+    pub progress: u64,
     pub size: u64,
     pub job_number: u64,
+    pub solutions: usize,
 }
 
 /// The thread will also hold its own state and the current_job.
 pub struct MiningThread {
     pub current_job: Arc<Mutex<Option<CurrentJob>>>,
     pub state: Arc<Mutex<ThreadState>>,
+    pub hash_rate_history: Arc<Mutex<HashRateHistory>>,
     pub handle: std::thread::JoinHandle<()>,
+}
+
+pub struct HashRateHistory (Vec<f64>);
+
+impl HashRateHistory {
+    pub fn new() -> Self {
+        HashRateHistory (vec![])
+    }
+
+    pub fn get_hashrate(&self) -> f64 {
+        let mut sum = 0.0;
+        for hashrate in self.0.iter() {
+            sum += hashrate;
+        }
+        // Avoid divide by zero.
+        if self.0.len() == 0 {
+            return 0.0;
+        }
+        sum / self.0.len() as f64
+    }
+
+    pub fn push_hashrate(&mut self, hashrate: f64) {
+        if hashrate.is_nan() {
+            return;
+        }
+        if self.0.len() > 100 {
+            self.0.remove(0);
+        }
+        self.0.push(hashrate);
+    }
 }
 
 impl Application {
@@ -54,7 +86,24 @@ impl Application {
             threads: vec![],
             expected_thread_count: thread_count,
             log: Logger::new(),
+            pool_status: None,
         }
+    }
+
+    pub fn total_hashrate(&self) -> f64 {
+        // Protect against div by zero
+        if self.threads.len() == 0 {
+            return  0.0;
+        }
+        let mut sum = 0.0;
+        for thread in self.threads.iter() {
+            let hash_rate_history = thread.hash_rate_history.lock().unwrap();
+            let thread_hashrate = hash_rate_history.get_hashrate();
+            if !thread_hashrate.is_nan() {
+                sum +=  thread_hashrate;
+            }
+        }
+        sum / self.threads.len() as f64
     }
 }
 

@@ -16,11 +16,6 @@ use tui::{
     Frame,
 };
 
-use crate::util::{
-    // event::{Event, Events},
-    StatefulList,
-};
-
 use crate::util::event::Event;
 use crate::util::event::Events;
 
@@ -34,12 +29,6 @@ use crate::application::{
 };
 
 use crate::log::LogMessage;
-
-struct Solution {
-    sha256: String,
-    nounce: String,
-    time: f64,
-}
 
 pub fn main_loop(app: Arc<Mutex<Application>>) -> Result<(), Box<dyn Error>> {
 
@@ -198,7 +187,13 @@ fn draw_gauge_window<B: Backend>(f: &mut Frame<B>, area: Rect, thread_statuses: 
         let job_info = if let Some(current_job) = &ts.current_job {
             let progress = current_job.progress as f64 / current_job.size as f64;
             (
-                format!("Thread {} : Job {} : {:.2}%", i + 1, current_job.job_number, progress * 100.0, ),
+                format!("Thread {} : Job {} : {:.2}% : Solutions {} : Size {: <9}",
+                    i + 1,
+                    current_job.job_number,
+                    progress * 100.0,
+                    current_job.solutions,
+                    current_job.size,
+                ),
                 progress
             )
         } else {
@@ -255,17 +250,32 @@ fn extract_thread_statuses(mut app: App) -> Vec<ThreadStatus> {
 
 
 fn extract_statistics(mut app: App) -> Statistics {
-    app.lock(|app| Statistics {
-        hash_rate: 2.44,
-        completed_job: 150073,
-        user_shares: 45,
-        pool_shares: 1506,
-        best_bit_length: 37,
-        user_hash_rate: 23.98,
-        student_number: String::from(&app.student_number),
-        name: String::from(&app.name),
-        thread_count: app.expected_thread_count as u8,
-        quitting: app.quitting,
+    app.lock(|app| {
+        let mut completed_job = 0;
+        let mut user_shares = 0;
+        let mut pool_shares = 0;
+        let mut best_bit_length = 0;
+        let mut user_hash_rate = 0.0;
+
+        if let Some(pool_status) = &app.pool_status {
+            completed_job = pool_status.completed_jobs as usize;
+            user_shares = pool_status.user_total_shares;
+            pool_shares = pool_status.pool_total_shares;
+            best_bit_length = pool_status.pool_best_zero_length;
+            user_hash_rate = pool_status.user_total_hash_rate;
+        }; 
+        Statistics {
+            hash_rate: app.total_hashrate() / 1_000_000.0,
+            completed_job,
+            user_shares,
+            pool_shares,
+            best_bit_length,
+            user_hash_rate: user_hash_rate / 1_000_000.0,
+            student_number: String::from(&app.student_number),
+            name: String::from(&app.name),
+            thread_count: app.expected_thread_count as u8,
+            quitting: app.quitting,
+        }
     })
 }
 
@@ -276,9 +286,10 @@ fn extract_log_messages<'a>(mut app: App) -> Vec<ListItem<'a>> {
         messages.clone()
     });
     logs.into_iter()
+        .rev()
         .map(|msg| {
             match msg {
-                LogMessage::Solution{hash, nounce} => {
+                LogMessage::Solution{hash, nounce, leading_zero_bit_length} => {
                     // Catergories message
                     let mut line = vec![
                         Span::raw(" [ "),
@@ -287,8 +298,8 @@ fn extract_log_messages<'a>(mut app: App) -> Vec<ListItem<'a>> {
                     ];
 
                     // Add length
-                    let zn = crate::com::count_nounce(&hash);
-                    let length_str = format!("{:<5}", &zn);
+                    let zn = (leading_zero_bit_length as f64 / 4.0).ceil() as usize;
+                    let length_str = format!("{:<5}", &leading_zero_bit_length);
                     line.push(Span::raw(length_str));
 
                     // Add sha256
