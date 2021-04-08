@@ -13,7 +13,7 @@ use crate::{application::{App, Application, CurrentJob, HashRateHistory, MiningT
 use radix_fmt::radix;
 use std::time::SystemTime;
 
-const MINIMUN_ZERO_BIT_LENGTH: u8 = 26;
+const MINIMUN_ZERO_BIT_LENGTH: u8 = 34;
 
 pub fn begin(app: Arc<Mutex<Application>>) -> std::thread::JoinHandle<()> {
     let maintaince_thread = std::thread::spawn(move || {
